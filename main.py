@@ -185,3 +185,30 @@ async def delete_workout(
             workouts_db.pop(idx)
             return
     raise HTTPException(status_code=404, detail="Workout not found")
+
+class Exercise(BaseModel):
+    name: str
+    category: str
+
+class ExerciseSet(BaseModel):
+    reps: int
+    weight: float
+
+# Add below existing routes
+
+@app.post("/workouts/{workout_id}/exercises", status_code=status.HTTP_201_CREATED)
+async def add_exercise(
+    workout_id: str,
+    exercise: Exercise,
+    user: User = Depends(get_current_user)
+):
+    await check_permission("WRITE", user)
+    for workout in workouts_db:
+        if workout["id"] == workout_id:
+            exercise_id = str(len(workout["exercises"])) + secrets.token_urlsafe(4)
+            exercise_dict = exercise.dict()
+            exercise_dict["id"] = exercise_id
+            exercise_dict["sets"] = []
+            workout["exercises"].append(exercise_dict)
+            return exercise_dict
+    raise HTTPException(status_code=404, detail="Workout not found")
