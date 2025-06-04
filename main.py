@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -108,3 +108,80 @@ class WorkoutCreate(WorkoutBase):
 class Workout(WorkoutBase):
     id: str
     exercises: List[dict] = []
+
+@app.post("/token", response_model=Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username, "permissions": user.permissions},
+        expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/workouts/", response_model=List[Workout])
+async def read_workouts(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    user: User = Depends(get_current_user)
+):
+    await check_permission("READ", user)
+    return workouts_db[skip : skip + limit]
+
+@app.post("/workouts/", response_model=Workout, status_code=status.HTTP_201_CREATED)
+async def create_workout(
+    workout: WorkoutCreate,
+    user: User = Depends(get_current_user)
+):
+    await check_permission("WRITE", user)
+    workout_id = f"{len(workouts_db)}_{secrets.token_urlsafe(4)}"
+    workout_dict = workout.dict()
+    workout_dict["id"] = workout_id
+    workout_dict["exercises"] = []
+    workouts_db.append(workout_dict)
+    return workout_dict
+
+@app.get("/workouts/{workout_id}", response_model=Workout)
+async def read_workout(
+    workout_id: str,
+    user: User = Depends(get_current_user)
+):
+    await check_permission("READ", user)
+    for workout in workouts_db:
+        if workout["id"] == workout_id:
+            return workout
+    raise HTTPException(status_code=404, detail="Workout not found")
+
+@app.put("/workouts/{workout_id}", response_model=Workout)
+async def update_workout(
+    workout_id: str,
+    workout: WorkoutCreate,
+    user: User = Depends(get_current_user)
+):
+    await check_permission("WRITE", user)
+    for idx, existing_workout in enumerate(workouts_db):
+        if existing_workout["id"] == workout_id:
+            updated_workout = workout.dict()
+            updated_workout["id"] = workout_id
+            updated_workout["exercises"] = existing_workout["exercises"]
+            workouts_db[idx] = updated_workout
+            return updated_workout
+    raise HTTPException(status_code=404, detail="Workout not found")
+
+@app.delete("/workouts/{workout_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workout(
+    workout_id: str,
+    user: User = Depends(get_current_user)
+):
+    await check_permission("DELETE", user)
+    for idx, workout in enumerate(workouts_db):
+        if workout["id"] == workout_id:
+            workouts_db.pop(idx)
+            return
+    raise HTTPException(status_code=404, detail="Workout not found")
