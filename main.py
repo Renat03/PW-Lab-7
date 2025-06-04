@@ -212,3 +212,24 @@ async def add_exercise(
             workout["exercises"].append(exercise_dict)
             return exercise_dict
     raise HTTPException(status_code=404, detail="Workout not found")
+
+# Add below previous route
+
+@app.post("/workouts/{workout_id}/exercises/{exercise_id}/sets", status_code=status.HTTP_201_CREATED)
+async def add_set(
+    workout_id: str,
+    exercise_id: str,
+    set_data: ExerciseSet,
+    user: User = Depends(get_current_user)
+):
+    await check_permission("WRITE", user)
+    for workout in workouts_db:
+        if workout["id"] == workout_id:
+            for exercise in workout["exercises"]:
+                if exercise["id"] == exercise_id:
+                    set_id = str(len(exercise["sets"])) + secrets.token_urlsafe(4)
+                    set_dict = set_data.dict()
+                    set_dict["id"] = set_id
+                    exercise["sets"].append(set_dict)
+                    return set_dict
+    raise HTTPException(status_code=404, detail="Workout or exercise not found")
