@@ -13,6 +13,8 @@ SECRET_KEY = secrets.token_urlsafe(32)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 5
 
+# Fake database
+workouts_db = []
 users_db = {
     "admin": {
         "username": "admin",
@@ -26,6 +28,7 @@ users_db = {
     }
 }
 
+# Models
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -41,58 +44,6 @@ class User(BaseModel):
 class UserInDB(User):
     hashed_password: str
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_user(username: str) -> Optional[UserInDB]:
-    user_dict = users_db.get(username)
-    if user_dict:
-        return UserInDB(**user_dict)
-    return None
-
-def authenticate_user(username: str, password: str):
-    user = get_user(username)
-    if not user or not verify_password(password, user.hashed_password):
-        return False
-    return user
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        permissions: List[str] = payload.get("permissions", [])
-        if username is None:
-            raise credentials_exception
-        token_data = TokenData(username=username, permissions=permissions)
-    except JWTError:
-        raise credentials_exception
-    user = get_user(username=token_data.username)
-    if user is None:
-        raise credentials_exception
-    return user
-
-async def check_permission(permission: str, user: User = Depends(get_current_user)):
-    if permission not in user.permissions:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Missing {permission} permission",
-        )
-
-workouts_db = []
 
 class WorkoutBase(BaseModel):
     name: str
@@ -109,6 +60,74 @@ class Workout(WorkoutBase):
     id: str
     exercises: List[dict] = []
 
+class Exercise(BaseModel):
+    name: str
+    category: str
+
+class ExerciseSet(BaseModel):
+    reps: int
+    weight: float
+
+# Auth setup
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_user(username: str) -> Optional[UserInDB]:
+    user_dict = users_db.get(username)
+    if user_dict:
+        return UserInDB(**user_dict)
+    return None
+
+
+def authenticate_user(username: str, password: str):
+    user = get_user(username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        permissions: List[str] = payload.get("permissions", [])
+        token_data = TokenData(username=username, permissions=permissions)
+    except JWTError:
+        raise credentials_exception
+    user = get_user(username=token_data.username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+async def check_permission(permission: str, user: User = Depends(get_current_user)):
+    if permission not in user.permissions:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Missing {permission} permission",
+        )
+
+# Routes
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     user = authenticate_user(form_data.username, form_data.password)
@@ -186,16 +205,7 @@ async def delete_workout(
             return
     raise HTTPException(status_code=404, detail="Workout not found")
 
-class Exercise(BaseModel):
-    name: str
-    category: str
-
-class ExerciseSet(BaseModel):
-    reps: int
-    weight: float
-
-# Add below existing routes
-
+# Exercise routes
 @app.post("/workouts/{workout_id}/exercises", status_code=status.HTTP_201_CREATED)
 async def add_exercise(
     workout_id: str,
@@ -212,8 +222,6 @@ async def add_exercise(
             workout["exercises"].append(exercise_dict)
             return exercise_dict
     raise HTTPException(status_code=404, detail="Workout not found")
-
-# Add below previous route
 
 @app.post("/workouts/{workout_id}/exercises/{exercise_id}/sets", status_code=status.HTTP_201_CREATED)
 async def add_set(
