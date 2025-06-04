@@ -41,8 +41,6 @@ class User(BaseModel):
 class UserInDB(User):
     hashed_password: str
 
-# Add below previous code
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -93,3 +91,20 @@ async def check_permission(permission: str, user: User = Depends(get_current_use
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Missing {permission} permission",
         )
+
+workouts_db = []
+
+class WorkoutBase(BaseModel):
+    name: str
+    date: str
+    startTime: str
+    endTime: str
+    rating: Optional[int] = None
+    comment: Optional[str] = None
+
+class WorkoutCreate(WorkoutBase):
+    pass
+
+class Workout(WorkoutBase):
+    id: str
+    exercises: List[dict] = []
