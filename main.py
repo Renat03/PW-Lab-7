@@ -11,7 +11,7 @@ app = FastAPI()
 
 SECRET_KEY = secrets.token_urlsafe(32)
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 5
+ACCESS_TOKEN_EXPIRE_MINUTES = 1
 
 # Fake database
 workouts_db = []
